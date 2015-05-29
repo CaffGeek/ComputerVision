@@ -1,5 +1,7 @@
 ﻿using System;
+using System.Collections.Generic;
 using System.Drawing;
+using System.Linq;
 using System.Windows.Forms;
 using Emgu.CV;
 using Emgu.CV.Structure;
@@ -53,13 +55,31 @@ namespace Camera
 			var motionMask = MogDetector.ForegroundMask
 				.ThresholdBinary(new Gray(250), new Gray(255)) // Removes shadows
 				//.Erode(3).Dilate(3) // Removes small artifacts that aren't really moving
+				.Canny(5, 70, 3)
+				.SmoothGaussian(15)
 				;
 
+			var contour = motionMask.FindContours();
+			while (contour != null)
+			{
+				if (contour.Count() < 6)
+				{
+					contour = contour.HNext;
+					continue;
+				}
+
+				var points = Array.ConvertAll(contour.ToArray<Point>(), value => new PointF(value.X, value.Y));
+				var ellipse = PointCollection.EllipseLeastSquareFitting(points);
+
+				motionMask.Draw(ellipse, new Gray(100), 2); 
+				
+				contour = contour.HNext;
+			}
+			
 			//var motion = frame.Copy(motionMask);
 			//var motion = rawFrame.Add(motionMask);
-			var motion = rawFrame.Copy();
-			motion.ROI = roi;
-			motion.Add(motionMask.Convert<Bgr, byte>());
+			var rawWithMotionFrame = rawFrame.Copy();
+			rawWithMotionFrame.ROI = roi;
 
 			if (_previousFrame != null)
 			{
@@ -86,15 +106,23 @@ namespace Camera
 					if (!(state == 1 && line.Length > 15 && error < 10))
 						continue;
 
-					motion.Draw(line, new Bgr(Color.Red), 3);
+					rawWithMotionFrame.Draw(line, new Bgr(Color.Red), 3);
 					Console.WriteLine("Error: {0}, Up: {1}, Left: {2}, Length: {3}", 
 						error, travelUp, travelLeft, line.Length);
 				}
 			}
 			_previousFrame = motionMask;
 
-			motion.ROI = originalRoi;
-			_viewer.Image = motion;
+			rawWithMotionFrame.ROI = originalRoi;
+
+			_viewer.Image = motionMask;
+
+			//_viewer.Image = motionMask;
+			//	.Convert<Gray, byte>()
+			//	.Erode(2)
+			//	.Dilate(2)
+			//	.Canny(5, 70, 3)
+			//	.SmoothGaussian(15);
 		}
 	}
 }
